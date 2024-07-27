@@ -155,14 +155,16 @@ def get_or_create_metadata_field(field_name: str) -> str:
 
 def create_thumbnail(file_path, size=(240, 240), font_size=8):
     logger.info(f"Creating thumbnail for {file_path}")
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read(500)
+    content = read_file_content(file_path)
 
     lexer = get_lexer(file_path)
     formatter = get_formatter(font_size, size[0] * 2)
 
-    highlighted = highlight(content, lexer, formatter)
-    img = Image.open(io.BytesIO(highlighted))
+    byte_io = io.BytesIO()
+    byte_io.write(highlight(content, lexer, formatter))
+    byte_io.seek(0)
+
+    img = Image.open(byte_io)
 
     # Crop to square from top-left
     crop_size = min(img.size)
@@ -172,13 +174,27 @@ def create_thumbnail(file_path, size=(240, 240), font_size=8):
     img = img.resize(size, Image.BILINEAR)
 
     # Instead of saving to file, save to bytes
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format="PNG", optimize=True, quality=85)
-    img_byte_arr = img_byte_arr.getvalue()
+    output_byte_io = io.BytesIO()
+    img.save(output_byte_io, format="PNG", optimize=True, quality=85)
+    img_byte_arr = output_byte_io.getvalue()
     # Convert to base64
     base64_encoded = base64.b64encode(img_byte_arr).decode("utf-8")
 
     return base64_encoded, lexer.name
+
+
+def read_file_content(file_path, max_length=500):
+    encodings = ["utf-8", "latin-1", "ascii"]
+    for encoding in encodings:
+        try:
+            with open(file_path, "r", encoding=encoding) as f:
+                return f.read(max_length)
+        except UnicodeDecodeError:
+            continue
+
+    # If all encodings fail, read as binary
+    with open(file_path, "rb") as f:
+        return f.read(max_length).decode("utf-8", errors="replace")
 
 
 @lru_cache(maxsize=32)
@@ -208,9 +224,13 @@ def get_formatter(font_size, image_width):
 
 def worker():
     while True:
-        depot_path = process_queue.get()
-        process_file(depot_path)
-        process_queue.task_done()
+        try:
+            depot_path = process_queue.get()
+            process_file(depot_path)
+        except Exception as e:
+            logger.exception(f"Error processing file: {depot_path}. {e}")
+        finally:
+            process_queue.task_done()
 
 
 # Start worker thread
