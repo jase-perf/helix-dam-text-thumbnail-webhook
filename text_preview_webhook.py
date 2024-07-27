@@ -3,6 +3,7 @@ import logging
 import io
 from pathlib import Path
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 import threading
 from queue import Queue
 import os
@@ -15,7 +16,7 @@ from flask import Flask, request, jsonify
 import requests
 from PIL import Image
 from pygments import highlight
-from pygments.lexers import get_lexer_for_filename, find_lexer_class_for_filename
+from pygments.lexers import get_lexer_for_filename
 from pygments.formatters import ImageFormatter
 from pygments.util import ClassNotFound
 
@@ -27,6 +28,8 @@ ACCOUNT_KEY = os.environ.get("ACCOUNT_KEY")
 
 FILETYPE_FIELD_NAME = "Coding Language"
 FILETYPE_FIELD_UUID = None
+
+NUM_WORKERS = 4
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -184,17 +187,36 @@ def create_thumbnail(file_path, size=(240, 240), font_size=8):
 
 
 def read_file_content(file_path, max_length=500):
-    encodings = ["utf-8", "latin-1", "ascii"]
+    encodings = ["utf-8", "latin-1", "ascii", "utf-16", "utf-32"]
     for encoding in encodings:
         try:
             with open(file_path, "r", encoding=encoding) as f:
-                return f.read(max_length)
+                content = f.read(max_length)
+                logger.debug(f"Read file {file_path} with encoding {encoding}")
+                if content.strip():  # Check if content is not just whitespace
+                    return content
         except UnicodeDecodeError:
             continue
 
-    # If all encodings fail, read as binary
+    # If all encodings fail, read as binary and decode with replacement
+    logger.debug(f"Fallback to read file{file_path} as bytes")
     with open(file_path, "rb") as f:
-        return f.read(max_length).decode("utf-8", errors="replace")
+        binary_content = f.read(max_length)
+
+    # Try to decode the binary content without replacements
+    for encoding in encodings:
+        try:
+            return binary_content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    # If all decoding attempts fail, fall back to a safe representation
+    printable_content = "".join(
+        char
+        for char in binary_content.decode("ascii", errors="ignore")
+        if char.isprintable()
+    )
+    return f"{printable_content}"
 
 
 @lru_cache(maxsize=32)
@@ -205,7 +227,6 @@ def get_lexer(filename):
         return None
 
 
-@lru_cache(maxsize=1)
 def get_formatter(font_size, image_width):
     formatter_kwargs = {
         "font_size": font_size,
@@ -222,19 +243,22 @@ def get_formatter(font_size, image_width):
     return ImageFormatter(**formatter_kwargs)
 
 
-def worker():
-    while True:
-        try:
+def worker(depot_path):
+    try:
+        process_file(depot_path)
+    except Exception as e:
+        logger.exception(f"Error processing file: {depot_path}. {e}")
+
+
+def executor_main():
+    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        while True:
             depot_path = process_queue.get()
-            process_file(depot_path)
-        except Exception as e:
-            logger.exception(f"Error processing file: {depot_path}. {e}")
-        finally:
-            process_queue.task_done()
+            executor.submit(worker, depot_path)
 
 
 # Start worker thread
-threading.Thread(target=worker, daemon=True).start()
+threading.Thread(target=executor_main, daemon=True).start()
 
 
 @app.route("/webhook", methods=["POST"])
