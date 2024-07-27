@@ -12,6 +12,7 @@ import sys
 import tempfile
 import base64
 
+import chardet
 from flask import Flask, request, jsonify
 import requests
 from PIL import Image
@@ -185,36 +186,18 @@ def create_thumbnail(file_path, size=(512, 512), font_size=16):
 
 
 def read_file_content(file_path, max_length=500):
-    encodings = ["utf-8", "latin-1", "ascii", "utf-16", "utf-32"]
-    for encoding in encodings:
-        try:
-            with open(file_path, "r", encoding=encoding) as f:
-                content = f.read(max_length)
-                logger.debug(f"Read file {file_path} with encoding {encoding}")
-                if content.strip():  # Check if content is not just whitespace
-                    return content
-        except UnicodeDecodeError:
-            continue
-
-    # If all encodings fail, read as binary and decode with replacement
-    logger.debug(f"Fallback to read file{file_path} as bytes")
     with open(file_path, "rb") as f:
-        binary_content = f.read(max_length)
+        raw_data = f.read(max_length)
 
-    # Try to decode the binary content without replacements
-    for encoding in encodings:
-        try:
-            return binary_content.decode(encoding)
-        except UnicodeDecodeError:
-            continue
+    detected = chardet.detect(raw_data)
+    encoding = detected["encoding"]
+    logger.debug(f"Detected encoding: {encoding}")
 
-    # If all decoding attempts fail, fall back to a safe representation
-    printable_content = "".join(
-        char
-        for char in binary_content.decode("ascii", errors="ignore")
-        if char.isprintable()
-    )
-    return f"{printable_content}"
+    try:
+        return raw_data.decode(encoding)
+    except UnicodeDecodeError:
+        logger.warning(f"Failed to decode file content: {file_path}")
+        return raw_data.decode("utf-8", errors="ignore")
 
 
 @lru_cache(maxsize=32)
