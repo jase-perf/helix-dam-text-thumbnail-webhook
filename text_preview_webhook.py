@@ -156,32 +156,30 @@ def get_or_create_metadata_field(field_name: str) -> str:
     return field_uuid
 
 
-def create_thumbnail(file_path, size=(240, 240), font_size=8):
+def create_thumbnail(file_path, size=(512, 512), font_size=16):
     logger.info(f"Creating thumbnail for {file_path}")
     content = read_file_content(file_path)
 
     lexer = get_lexer(file_path)
-    formatter = get_formatter(font_size, size[0] * 2)
+    formatter = get_formatter(font_size=font_size, image_pad=10, line_pad=5)
 
     byte_io = io.BytesIO()
     byte_io.write(highlight(content, lexer, formatter))
     byte_io.seek(0)
 
     img = Image.open(byte_io)
+    bg_color = img.getpixel((0, 0))
+    content_box = img.getbbox()
+    img = img.crop(content_box)
 
-    # Crop to square from top-left
-    crop_size = min(img.size)
-    img = img.crop((0, 0, crop_size, crop_size))
+    thumbnail = Image.new("RGB", size, color=bg_color)
 
-    # Resize to target size
-    img = img.resize(size, Image.BILINEAR)
+    thumbnail.paste(img, (0, 0))
 
     # Instead of saving to file, save to bytes
-    output_byte_io = io.BytesIO()
-    img.save(output_byte_io, format="PNG", optimize=True, quality=85)
-    img_byte_arr = output_byte_io.getvalue()
-    # Convert to base64
-    base64_encoded = base64.b64encode(img_byte_arr).decode("utf-8")
+    buffer = io.BytesIO()
+    thumbnail.save(buffer, format="PNG", optimize=True, quality=85)
+    base64_encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     return base64_encoded, lexer.name
 
@@ -227,12 +225,12 @@ def get_lexer(filename):
         return None
 
 
-def get_formatter(font_size, image_width):
+def get_formatter(font_size, image_pad, line_pad):
     formatter_kwargs = {
         "font_size": font_size,
         "line_numbers": False,
-        "image_width": image_width,
         "image_pad": 10,
+        "line_pad": 5,
         "encoding": "utf-8",
     }
 

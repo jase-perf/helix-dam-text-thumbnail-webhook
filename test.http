@@ -1,0 +1,67 @@
+POST http://localhost:5000/webhook
+Content-Type: application/json
+
+[
+  {
+    "api_status": 200,
+    "api_timestamp": "2023-06-27T07:36:50Z",
+    "id": "649a918e7e3cf97ba280d0f6",
+    "created_at": "2023-06-27T07:36:46Z",
+    "updated_at": "2023-06-27T07:36:46Z",
+    "operation": "created",
+    "target": "push",
+    "progress": 100,
+    "objects": {
+      "commits": [
+        {
+          "api_status": 200,
+          "api_timestamp": "2023-06-27T07:36:51Z",
+          "id": "2366",
+          "author": "admin",
+          "email": "admin@company.com",
+          "description": "description of changes",
+          "timestamp": "2023-06-27T07:36:41Z",
+          "rev": null,
+          "repository": {
+            "id": "images",
+            "uuid": "2a1c3f8a-c5c9-4898-91c5-8cc236127e5d"
+          },
+          "project": {
+            "id": "space_jam",
+            "uuid": "168a1155-96f5-4b47-8b20-96898e4a0fa5"
+          }
+        }
+      ],
+      "last_commit": "2366",
+      "commit_count": 1,
+      "files": {
+        "added": [],
+        "modified": [
+            "//jase_demo/jase-demo-dev/changelist_size/README.md",
+            "//jase_demo/jase-demo-dev/changelist_size/requirements.txt"
+        ],
+        "deleted": [],
+        "renamed": [
+          {
+            "from": {
+              "path": "//space_jam_stream/images/mainline/original.jpeg",
+              "rev": "27"
+            },
+            "to": {
+              "path": "//space_jam_stream/images/mainline/renamed.jpeg",
+              "rev": "1"
+            }
+          }
+        ]
+      },
+      "ref": null,
+      "bookmarks": [
+
+      ],
+      "code_reviews": [
+
+      ]
+    },
+    "timestamp": "2023-06-27T07:36:46Z"
+  }
+]
