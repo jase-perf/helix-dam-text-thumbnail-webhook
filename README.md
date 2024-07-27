@@ -48,6 +48,7 @@ This is simplest to install directly on your DAM (Teamhub) instance so no traffi
    - Click the + button to add a new webhook
    - Give it a name and customize any settings you want (the defaults should work if you want this to apply to all projects in DAM)
    - Click Next and enter the URL or IP address of the docker container's instance followed by `/webhook`. If running on the same instance as DAM, then `http://localhost:8080/webhook` should work. (If you modified your port value, be sure to put the modified number.) Then click Save.
+     - By default it will attempt to generate thumbnails for any file extension that is recognized by [Pygments Lexer](https://pygments.org/docs/lexers/), which is thousands of file extensions. If you want to limit this to specific file extensions, look into [Restricting when webhooks run](https://help.perforce.com/helix-core/helix-dam/current/Content/HelixDAM-User/adding-webhooks.html#restrictions) in the Helix DAM User Guide.
 
 The webhook service is now running and will process text files added to your DAM instance.
 
