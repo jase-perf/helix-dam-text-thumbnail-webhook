@@ -3,6 +3,7 @@ import logging
 import io
 from pathlib import Path
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 import threading
 from queue import Queue
 import os
@@ -27,6 +28,7 @@ ACCOUNT_KEY = os.environ.get("ACCOUNT_KEY")
 
 FILETYPE_FIELD_NAME = "Coding Language"
 FILETYPE_FIELD_UUID = None
+NUM_WORKERS = 4
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -206,15 +208,21 @@ def get_formatter(font_size, image_width):
     return ImageFormatter(**formatter_kwargs)
 
 
-def worker():
-    while True:
-        depot_path = process_queue.get()
-        process_file(depot_path)
-        process_queue.task_done()
+def worker(depot_path):
+    process_file(depot_path)
+
+
+def threadpool():
+    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+        while True:
+            depot_path = process_queue.get()
+            if depot_path is None:
+                break
+            executor.submit(worker, depot_path)
 
 
 # Start worker thread
-threading.Thread(target=worker, daemon=True).start()
+threading.Thread(target=threadpool, daemon=True).start()
 
 
 @app.route("/webhook", methods=["POST"])
