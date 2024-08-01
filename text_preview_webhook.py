@@ -10,7 +10,6 @@ import os
 import logging
 import sys
 import tempfile
-import base64
 
 import chardet
 from flask import Flask, request, jsonify
@@ -20,6 +19,7 @@ from pygments import highlight
 from pygments.lexers import get_lexer_for_filename
 from pygments.formatters import ImageFormatter
 from pygments.util import ClassNotFound
+from helixdam import HelixDAM, HelixDAMAuthException, HelixDAMException
 
 CUSTOM_FONT = "font/custom_font.ttf"
 
@@ -28,9 +28,11 @@ DAM_URL = os.environ.get("DAM_URL")
 ACCOUNT_KEY = os.environ.get("ACCOUNT_KEY")
 
 FILETYPE_FIELD_NAME = "Coding Language"
-FILETYPE_FIELD_UUID = None
 
 NUM_WORKERS = 4
+
+hd = HelixDAM(account_key=ACCOUNT_KEY, url=DAM_URL)
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -48,114 +50,27 @@ def process_file(depot_path: str) -> None:
     logger.info(f"Downloading file: {depot_path}")
     # This is where you'd call your clip_extractor and handle the results
     with tempfile.TemporaryDirectory() as temp_dir:
-        with open(Path(temp_dir) / Path(depot_path).name, "wb") as temp_file:
-            try:
-                download_file(depot_path, temp_file)
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Error downloading file: {e}")
-                return
         temp_file_path = Path(temp_dir) / Path(depot_path).name
+        try:
+            hd.download_file(depot_path, temp_file_path)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error downloading file: {e}")
+            return
         thumbnail_bytes, language_name = create_thumbnail(temp_file_path)
         if thumbnail_bytes:
             try:
-                send_preview_to_dam(depot_path, thumbnail_bytes)
-            except requests.exceptions.RequestException as e:
+                hd.upload_preview(depot_path, input_bytes=thumbnail_bytes)
+                logger.info(f"Successfully uploaded preview for {depot_path}")
+            except HelixDAMException as e:
                 logger.error(f"Error sending preview: {e}")
             try:
-                send_metadata_to_dam(
+                hd.update_file_metadata_by_name(
                     depot_path,
-                    metadata={
-                        get_or_create_metadata_field(FILETYPE_FIELD_NAME): language_name
-                    },
+                    name_value_dict={FILETYPE_FIELD_NAME: language_name},
                 )
-            except requests.exceptions.RequestException as e:
+                logger.info(f"Successfully updated metadata for {depot_path}")
+            except HelixDAMException as e:
                 logger.error(f"Error sending metadata: {e}")
-
-
-def download_file(depot_path: str, file_obj) -> None:
-    url = f"{DAM_URL}/api/p4/files"
-    headers = {"Authorization": f"account_key='{ACCOUNT_KEY}'"}
-    response = requests.request(
-        "GET", url, headers=headers, params={"depot_path": depot_path}
-    )
-    response.raise_for_status()
-    for chunk in response.iter_content(chunk_size=8192):
-        file_obj.write(chunk)
-
-
-def send_preview_to_dam(depot_path: str, thumbnail_bytes: str) -> None:
-    logger.info(f"Uploading preview image to DAM for {depot_path}")
-    headers = {
-        "Authorization": f"account_key='{ACCOUNT_KEY}'",
-        "Content-Type": "application/json",
-    }
-    payload = {"content": thumbnail_bytes, "encoding": "base64"}
-    params = {"depot_path": depot_path}
-    response = requests.put(
-        f"{DAM_URL}/api/p4/files/preview", headers=headers, params=params, json=payload
-    )
-
-    if response.status_code == 200:
-        logger.info(f"Successfully uploaded preview image to DAM for {depot_path}")
-        logger.debug(f"Response: {response.text}")
-    else:
-        logger.error(
-            f"Failed to upload preview image to DAM for {depot_path}\n{response.status_code}: {response.text}"
-        )
-
-
-def send_metadata_to_dam(depot_path: str, metadata: dict) -> None:
-    url = f"{DAM_URL}/api/p4/batch/custom_file_attributes"
-    headers = {
-        "Authorization": f"account_key='{ACCOUNT_KEY}'",
-        "Content-Type": "application/json",
-    }
-
-    logger.debug(f"Adding metadata: {metadata}")
-    payload = {
-        "paths": [{"path": depot_path}],
-        "create": [{"uuid": uuid, "value": value} for uuid, value in metadata.items()],
-        "propagatable": False,
-    }
-
-    logger.debug(f"Sending metadata to DAM: {payload}")
-    response = requests.put(
-        url,
-        headers=headers,
-        json=payload,
-    )
-    response.raise_for_status()
-    logger.info(f"Successfully uploaded metadata to DAM for {depot_path}")
-
-
-@lru_cache(maxsize=1)
-def get_or_create_metadata_field(field_name: str) -> str:
-    url = f"{DAM_URL}/api/company/file_attribute_templates"
-    headers = {"Authorization": f"account_key='{ACCOUNT_KEY}'"}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    all_fields = response.json()["results"]
-
-    field_uuid = next((f["uuid"] for f in all_fields if f["name"] == field_name), None)
-
-    if field_uuid:
-        return field_uuid
-
-    payload = {
-        "name": field_name,
-        "type": "text",
-        "available_values": [],
-        "hidden": False,
-    }
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-    )
-    response.raise_for_status()
-    field_uuid = response.json()["uuid"]
-    return field_uuid
-
 
 def create_thumbnail(file_path, size=(512, 512), font_size=16):
     logger.info(f"Creating thumbnail for {file_path}")
@@ -175,12 +90,17 @@ def create_thumbnail(file_path, size=(512, 512), font_size=16):
 
     thumbnail = Image.new("RGB", size, color=bg_color)
 
-    thumbnail.paste(img, (0, 0))
+    # Calculate position to center the image
+    offset = (
+        (size[0] - img.width) // 2 if img.width < size[0] else 0,
+        (size[1] - img.height) // 2 if img.height < size[1] else 0,
+    )
+    thumbnail.paste(img, offset)
 
     # Instead of saving to file, save to bytes
     buffer = io.BytesIO()
     thumbnail.save(buffer, format="PNG", optimize=True, quality=85)
-    base64_encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    base64_encoded = buffer.getvalue()
 
     return base64_encoded, lexer.name
 
@@ -198,7 +118,6 @@ def read_file_content(file_path, max_length=500):
     except UnicodeDecodeError:
         logger.warning(f"Failed to decode file content: {file_path}")
         return raw_data.decode("utf-8", errors="ignore")
-
 
 @lru_cache(maxsize=32)
 def get_lexer(filename):
