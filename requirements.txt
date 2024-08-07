@@ -3,4 +3,4 @@ requests
 pillow
 pygments
 chardet
-helixdam
+helixdam>=0.1.0

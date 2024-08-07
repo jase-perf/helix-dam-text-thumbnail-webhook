@@ -48,7 +48,6 @@ process_queue = Queue()
 
 def process_file(depot_path: str) -> None:
     logger.info(f"Downloading file: {depot_path}")
-    # This is where you'd call your clip_extractor and handle the results
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_file_path = Path(temp_dir) / Path(depot_path).name
         try:
@@ -59,7 +58,7 @@ def process_file(depot_path: str) -> None:
         thumbnail_bytes, language_name = create_thumbnail(temp_file_path)
         if thumbnail_bytes:
             try:
-                hd.upload_preview(depot_path, input_bytes=thumbnail_bytes)
+                hd.upload_preview(depot_path, image=thumbnail_bytes)
                 logger.info(f"Successfully uploaded preview for {depot_path}")
             except HelixDAMException as e:
                 logger.error(f"Error sending preview: {e}")
